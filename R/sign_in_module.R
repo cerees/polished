@@ -294,7 +294,7 @@ sign_in_module <- function(input, output, session) {
       if (is.null(new_user)) {
         # show unable to sign in message
         tychobratools::show_toast('error', 'sign in error')
-        stop('sign_in_module: sign in error')
+        stop('[polished] sign_in_module: sign in error')
 
       } else {
         # sign in success
