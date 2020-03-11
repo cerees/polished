@@ -69,7 +69,24 @@ Sessions <-  R6::R6Class(
     curr_time_1 = function() {
       lubridate::with_tz(Sys.time(), tzone = "UTC") + lubridate::minutes(1)
     },
-    sign_in = function(firebase_token, token) {
+    #' @description
+    #' returns either the signed in user if the sign in is successfull or NULL
+    #' if the sign in fails.
+    #'
+    #' @param firebase_token the id token JWT created by the Firebase client side
+    #' JavaScript.
+    #' @param hashed_cookie the hashed polished cookie
+    #'
+    #' @return a list containing the collofing if sign in is successful:
+    #' - is_admin
+    #' - $is_admin
+    #' - user_uid
+    #' - roles
+    #'
+    #' roles_out the sign in is successful this function also executed `private$add(<user session>)`
+    #' which inserts the newly activated session into the "polished.sessions" table.
+    #'
+    sign_in = function(firebase_token, hashed_cookie) {
 
       decoded_jwt <- NULL
       tryCatch({
@@ -117,7 +134,9 @@ Sessions <-  R6::R6Class(
 
 
 
-        new_session$token <- token
+        new_session$hashed_cookie <- hashed_cookie
+
+        # TODO: automaticlaly generate this in postgres
         new_session$session_uid <- create_uid()
         # add the session to the 'sessions' table
         private$add(new_session)
@@ -194,7 +213,6 @@ Sessions <-  R6::R6Class(
       roles <- character(0)
       DBI::dbWithTransaction(self$conn, {
 
-
         role_names <- DBI::dbGetQuery(
           self$conn,
           "SELECT uid, name FROM polished.roles WHERE app_name=$1",
@@ -219,11 +237,13 @@ Sessions <-  R6::R6Class(
 
       roles
     },
-    find = function(token) {
+    find = function(hashed_cookie) {
 
       signed_in_sessions <- dbGetQuery(
         self$conn,
-        'SELECT uid AS session_uid, user_uid, email, email_verified, firebase_uid, app_name, signed_in_as FROM polished.sessions WHERE token=$1 AND is_signed_in=$2',
+        'SELECT uid AS session_uid, user_uid, email, email_verified, firebase_uid,
+        app_name, signed_in_as FROM polished.sessions WHERE hashed_cookie=$1 AND
+        is_signed_in=$2',
         params = list(
           token,
           TRUE
@@ -253,7 +273,7 @@ Sessions <-  R6::R6Class(
           "email_verified" = signed_in_sessions$email_verified[1],
           "is_admin" = invite$is_admin,
           "roles" = roles,
-          "token" = token
+          "hashed_cookie" = hashed_cookie
         )
 
 
@@ -322,29 +342,34 @@ Sessions <-  R6::R6Class(
 
       invisible(self)
     },
-    set_signed_in_as = function(token, signed_in_as) {
+
+    #' @description
+    #' sign in as an alternate user
+    #'
+    #' @param session_uid the session uid
+    #' @param signed_in_as_user_uid the user uid of the user to that the admin is
+    #' signing in as.
+    set_signed_in_as = function(session_uid, signed_in_as_user_uid) {
 
       dbExecute(
         self$conn,
-        'UPDATE polished.sessions SET signed_in_as=$1 WHERE token=$2 AND app_name=$3',
+        'UPDATE polished.sessions SET signed_in_as=$1 WHERE session_uid=$2',
         params = list(
           signed_in_as$uid,
-          token,
-          self$app_name
+          session_uid
         )
       )
 
       invisible(self)
     },
-    clear_signed_in_as = function(token) {
+    clear_signed_in_as = function(session_uid) {
 
       dbExecute(
         self$conn,
-        'UPDATE polished.sessions SET signed_in_as=$1 WHERE token=$2 AND app_name=$3',
+        'UPDATE polished.sessions SET signed_in_as=$1 WHERE session_uid=$2',
         params = list(
           NA,
-          token,
-          self$app_name
+          session_uid
         )
       )
 
@@ -371,70 +396,139 @@ Sessions <-  R6::R6Class(
         roles = roles
       )
     },
+
+
+    #' @description
+    #' set the user session to active
+    #'
+    #' @param session_uid the session uid
+    #'
+    #' @details This function sets "is_active" to `FALSE` for the session uid in the
+    #' polished.sessions table.  We execute this function when the user disconnects
+    #' from the custom Shiny app that is using polished.
+    #'
     set_inactive = function(session_uid) {
 
-      dbExecute(
-        self$conn,
-        'UPDATE polished.sessions SET is_active=$1 WHERE uid=$2',
-        list(
-          FALSE,
-          session_uid
-        )
-      )
+      DBI::dbWithTransaction(self$conn, {
 
-      dbExecute(
-        self$conn,
-        "INSERT INTO polished.session_actions (uid, session_uid, action) VALUES ($1, $2, $3)",
-        list(
-          create_uid(),
-          session_uid,
-          'deactivate'
+        DBI::dbExecute(
+          self$conn,
+          'UPDATE polished.sessions SET is_active=$1 WHERE uid=$2',
+          list(
+            FALSE,
+            session_uid
+          )
         )
-      )
+
+        DBI::dbExecute(
+          self$conn,
+          "INSERT INTO polished.session_actions (uid, session_uid, action) VALUES ($1, $2, $3)",
+          list(
+            create_uid(),
+            session_uid,
+            'deactivate'
+          )
+        )
+
+      })
 
     },
+
+
+    #' @description
+    #' set the user session to active
+    #'
+    #' @param session_uid the session uid
+    #'
+    #' @details this function sets "is_active" to TRUE in the "polished.sessions"
+    #' table.  This occurs when a user returns to the Shiny app and they are still
+    #' signed in from a previous session.
+    #'
     set_active = function(session_uid) {
-      dbExecute(
-        self$conn,
-        'UPDATE polished.sessions SET is_active=$1 WHERE uid=$2',
-        list(
-          TRUE,
-          session_uid
-        )
-      )
 
-      dbExecute(
-        self$conn,
-        "INSERT INTO polished.session_actions (uid, session_uid, action) VALUES ($1, $2, $3)",
-        list(
-          create_uid(),
-          session_uid,
-          'activate'
+
+      DBI::dbWithTransaction(self$conn, {
+
+
+        DBI::dbExecute(
+          self$conn,
+          'UPDATE polished.sessions SET is_active=$1 WHERE uid=$2',
+          list(
+            TRUE,
+            session_uid
+          )
         )
-      )
+
+        DBI::dbExecute(
+          self$conn,
+          "INSERT INTO polished.session_actions (uid, session_uid, action) VALUES ($1, $2, $3)",
+          list(
+            create_uid(),
+            session_uid,
+            'activate'
+          )
+        )
+      })
+
     },
-    sign_out = function(user_uid, session_uid) {
 
 
-      dbExecute(
-        self$conn,
-        'UPDATE polished.sessions SET is_active=$1, is_signed_in=$2 WHERE user_uid=$3',
-        list(
-          FALSE,
-          FALSE,
-          user_uid
+
+    #' @description
+    #' sign the user out of all sessions in the polished project
+    #'
+    #' @details
+    #' if this project has more than 1 polished app and/or the user is signed into
+    #' app(s) in thie polished project from more than 1 device, the user can have more
+    #' than 1 active session.  This function signs the user out of all active sessions.
+    #'
+    #' @param user_uid the uid of the user
+    sign_out = function(user_uid) {
+
+      DBI::dbWithTransaction(self$conn, {
+
+        # get all signed in session.  Note: a session can have "is_active"=FALSE but still
+        # have "is_signed_in"=TRUE because once they end their Shiny session, "is_active" is
+        # set to FALSE, but "is_signed_in" is still TRUE.
+        active_session_uids <- DBI::dbGetQuery(
+          self$conn,
+          'SELECT session_uid FROM polished.sessions WHERE user_uid=$1 AND is_signed_in=$2'
+        )$session_uid
+
+        if (length(active_session_uids) == 0) {
+          print('[polished] no signed in sessions')
+          return(NULL)
+        }
+
+        # set all active sessions to inactive and sign out
+        DBI::dbExecute(
+          self$conn,
+          'UPDATE polished.sessions SET is_active=$1, is_signed_in=$2 WHERE user_uid=$3 AND is_signed_in=$4',
+          list(
+            FALSE,
+            FALSE,
+            user_uid,
+            TRUE
+          )
         )
-      )
 
-      dbExecute(
-        self$conn,
-        "INSERT INTO polished.session_actions (uid, session_uid, action) VALUES ($1, $2, $3)",
-        list(
-          create_uid(),
-          session_uid,
-          'sign_out'
-        )
-      )
+        # create a sign_out action for all sessions that the user just ended
+        for (active_session_uid in seq_along(active_session_uids)) {
+
+          DBI::dbExecute(
+            self$conn,
+            "INSERT INTO polished.session_actions (uid, session_uid, action) VALUES ($1, $2, $3)",
+            list(
+              create_uid(),
+              active_session_uid,
+              'sign_out'
+            )
+          )
+
+        }
+
+      })
+
     }
   ),
   private = list(
@@ -456,15 +550,39 @@ Sessions <-  R6::R6Class(
 
       invisible(self)
     },
+
+
+    # polished configuration setting.
+    # valid values a "app" or "all".  "app" means that users authorized to access this
+    # app are only otherized to access this app.  "all" means that all users authoized to
+    # access any apps in this polished project can access this app.
     authorization_level = "app", # or "all"
-    refresh_jwt_pub_key = function() {
-      google_keys_resp <- httr::GET("https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com")
+
+
+    pub_keys = NULL,
+    # number of seconds that the public key will remain valid
+    pub_keys_expires = NULL,
+
+
+    #' @desciption
+    #' refresh public keys
+    #'
+    #' @description
+    #' These keys are used to verify the user's firebase token when the user signs
+    #' in to polished.  If the public keys are successfully returned from Google, this
+    #' function set them to `private$pub_keys` and updates `privet$pub_keys_expire`.
+    #' If unsuccessful throw an error.
+    #'
+    refresh_pub_keys = function() {
+      # get the public keys from Google
+      pub_keys_resp <- httr::GET("https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com")
 
       # Error if we didn't get the keys successfully
-      httr::stop_for_status(google_keys_resp)
+      httr::stop_for_status(pub_keys_resp)
 
-      private$jwt_pub_key <- jsonlite::fromJSON(
-        httr::content(google_keys_resp, "text")
+      # key response successful, so set the `pub_keys` property
+      private$pub_keys <- jsonlite::fromJSON(
+        httr::content(pub_keys_resp, "text")
       )
 
 
@@ -477,22 +595,35 @@ Sessions <-  R6::R6Class(
 
           if (length(elem) == 2 && trimws(elem[1]) == "max-age") {
             max_age <- as.numeric(elem[2])
-            private$jwt_pub_key_expires <- lubridate::with_tz(Sys.time(), tzone = "UTC") + max_age
+            private$pub_keys_expire <- lubridate::with_tz(Sys.time(), tzone = "UTC") + max_age
             break
           }
 
         }
       }
     },
-    jwt_pub_key = NULL,
-    # number of seconds that the public key will remain valid
-    jwt_pub_key_expires = NULL,
+
+
+
+    #' @description
+    #' verify the Firebase id token
+    #'
+    #' @details
+    #' Verify the firebase token using the methodology outlined here
+    #' \url{https://firebase.google.com/docs/auth/admin/verify-id-tokens}
+    #'
+    #' @param firebase_token this the JWT created by the Firebase client side
+    #' Javascript
+    #'
+    #' @return if `firebase_token` successfully verified, a list containing the users
+    #' Firebase user information, or an error if unsuccessful.
+    #'
     verify_firebase_token = function(firebase_token) {
       # Google sends us 2 public keys to authenticate the JWT.  Sometimes the correct
       # key is the first one, and sometimes it is the second.  I do not know how
       # to tell which key is the right one to use, so we try them both for now.
       decoded_jwt <- NULL
-      for (key in private$jwt_pub_key) {
+      for (key in private$pub_keys) {
         # If a key isn't the right one for the token, then we get an error.
         # Ignore the errors and just don't set decoded_token if there's
         # an error. When we're done, we'll look at the the decoded_token
@@ -504,7 +635,7 @@ Sessions <-  R6::R6Class(
       }
 
       if (is.null(decoded_jwt)) {
-        stop("[polished] error decoding JWT")
+        stop("[polished] error decoding Firebase token")
       }
 
       curr_time <- lubridate::with_tz(Sys.time(), tzone = "UTC")
