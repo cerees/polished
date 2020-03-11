@@ -4,7 +4,32 @@
 \alias{Sessions}
 \title{Sessions}
 \description{
+Sessions
+
+Sessions
+}
+\details{
 R6 class to track the polished sessions
+
+This function sets "is_active" to `FALSE` for the session uid in the
+polished.sessions table.  We execute this function when the user disconnects
+from the custom Shiny app that is using polished.
+
+
+this function sets "is_active" to TRUE in the "polished.sessions"
+table.  This occurs when a user returns to the Shiny app and they are still
+signed in from a previous session.
+
+
+
+if this project has more than 1 polished app and/or the user is signed into
+app(s) in thie polished project from more than 1 device, the user can have more
+than 1 active session.  This function signs the user out of all active sessions.
+
+
+
+Verify the firebase token using the methodology outlined here
+\url{https://firebase.google.com/docs/auth/admin/verify-id-tokens}
 }
 \section{Methods}{
 \subsection{Public methods}{
@@ -51,10 +76,32 @@ R6 class to track the polished sessions
 \if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-sign_in"></a>}}
 \subsection{Method \code{sign_in()}}{
+returns either the signed in user if the sign in is successfull or NULL
+if the sign in fails.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{Sessions$sign_in(firebase_token, token)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{Sessions$sign_in(firebase_token, hashed_cookie)}\if{html}{\out{</div>}}
 }
 
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{firebase_token}}{the id token JWT created by the Firebase client side
+JavaScript.}
+
+\item{\code{hashed_cookie}}{the hashed polished cookie}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Returns}{
+a list containing the collofing if sign in is successful:
+- is_admin
+- $is_admin
+- user_uid
+- roles
+
+roles_out the sign in is successful this function also executed `private$add(<user session>)`
+which inserts the newly activated session into the "polished.sessions" table.
+}
 }
 \if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-get_invite_by_email"></a>}}
@@ -84,7 +131,7 @@ R6 class to track the polished sessions
 \if{html}{\out{<a id="method-find"></a>}}
 \subsection{Method \code{find()}}{
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{Sessions$find(token)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{Sessions$find(hashed_cookie)}\if{html}{\out{</div>}}
 }
 
 }
@@ -107,16 +154,27 @@ R6 class to track the polished sessions
 \if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-set_signed_in_as"></a>}}
 \subsection{Method \code{set_signed_in_as()}}{
+sign in as an alternate user
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{Sessions$set_signed_in_as(token, signed_in_as)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{Sessions$set_signed_in_as(session_uid, signed_in_as_user_uid)}\if{html}{\out{</div>}}
 }
 
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{session_uid}}{the session uid}
+
+\item{\code{signed_in_as_user_uid}}{the user uid of the user to that the admin is
+signing in as.}
+}
+\if{html}{\out{</div>}}
+}
 }
 \if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-clear_signed_in_as"></a>}}
 \subsection{Method \code{clear_signed_in_as()}}{
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{Sessions$clear_signed_in_as(token)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{Sessions$clear_signed_in_as(session_uid)}\if{html}{\out{</div>}}
 }
 
 }
@@ -131,26 +189,50 @@ R6 class to track the polished sessions
 \if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-set_inactive"></a>}}
 \subsection{Method \code{set_inactive()}}{
+set the user session to active
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{Sessions$set_inactive(session_uid)}\if{html}{\out{</div>}}
 }
 
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{session_uid}}{the session uid}
+}
+\if{html}{\out{</div>}}
+}
 }
 \if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-set_active"></a>}}
 \subsection{Method \code{set_active()}}{
+set the user session to active
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{Sessions$set_active(session_uid)}\if{html}{\out{</div>}}
 }
 
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{session_uid}}{the session uid}
+}
+\if{html}{\out{</div>}}
+}
 }
 \if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-sign_out"></a>}}
 \subsection{Method \code{sign_out()}}{
+sign the user out of all sessions in the polished project
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{Sessions$sign_out(user_uid, session_uid)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{Sessions$sign_out(user_uid)}\if{html}{\out{</div>}}
 }
 
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{user_uid}}{the uid of the user}
+}
+\if{html}{\out{</div>}}
+}
 }
 \if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-clone"></a>}}

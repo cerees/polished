@@ -310,8 +310,8 @@ Sessions <-  R6::R6Class(
 
         # check if the jwt public key has expired.  Add an extra minute to the
         # current time for padding before checking if the key has expired.
-        if (lubridate::with_tz(Sys.time(), tzone = "UTC") + lubridate::minutes(1) >
-            private$jwt_pub_key_expires) {
+        curr_time <- curr_time_1()
+        if (curr_time > private$jwt_pub_key_expires) {
           private$refresh_jwt_pub_key()
         }
 
