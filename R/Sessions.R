@@ -9,7 +9,6 @@
 #' @export
 #'
 #' @importFrom R6 R6Class
-#' @importFrom httr GET content warn_for_status
 #' @importFrom jsonlite fromJSON
 #' @importFrom digest digest
 #' @importFrom DBI dbGetQuery dbWithTransaction dbExecute dbIsValid
@@ -67,7 +66,7 @@ Sessions <-  R6::R6Class(
     # the current time + 1 minute.  Used to check that the keys have not
     # expired.  Using time of 1 minute into the future to be safe.
     curr_time_1 = function() {
-      lubridate::with_tz(Sys.time(), tzone = "UTC") + lubridate::minutes(1)
+      as.numeric(Sys.time() + lubridate::minutes(1))
     },
     #' @description
     #' returns either the signed in user if the sign in is successfull or NULL
@@ -79,7 +78,7 @@ Sessions <-  R6::R6Class(
     #'
     #' @return a list containing the collofing if sign in is successful:
     #' - is_admin
-    #' - $is_admin
+    #' - is_admin
     #' - user_uid
     #' - roles
     #'
@@ -293,15 +292,6 @@ Sessions <-  R6::R6Class(
       }
 
       return(session_out)
-    },
-    list = function() {
-
-      out <- dbGetQuery(
-        self$conn,
-        "SELECT * FROM polished.active_sessions"
-      )
-
-      return(out)
     },
     refresh_email_verification = function(session_uid, firebase_token) {
 
@@ -614,6 +604,8 @@ Sessions <-  R6::R6Class(
     #'
     #' @param firebase_token this the JWT created by the Firebase client side
     #' Javascript
+    #'
+    #' @importFrom jose jwt_decode_sig
     #'
     #' @return if `firebase_token` successfully verified, a list containing the users
     #' Firebase user information, or an error if unsuccessful.
