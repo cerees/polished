@@ -117,26 +117,19 @@ create_app_user <- function(conn, app_name, email, is_admin = FALSE, roles = cha
     if (length(roles) > 0) {
 
       # create table of new roles to insert into "user_roles"
+      existing_roles <- collect(tbl(conn, in_schema("polished", "roles")))
+      
+      new_roles <- roles[!(roles %in% existing_roles$name)]
       
       new_roles <- data.frame(
-        uid = uuid::UUIDgenerate(n = length(roles)),
-        name = roles,
-        app_name = app_name,
-        created_by = created_by,
-        modified_by = created_by,
+        uid = uuid::UUIDgenerate(n = length(new_roles)),
+        name = roles[!(roles %in% existing_roles$name)],
+        app_name = app_name[!(roles %in% existing_roles$name)],
+        created_by = created_by[!(roles %in% existing_roles$name)],
+        modified_by = created_by[!(roles %in% existing_roles$name)],
         stringsAsFactors = FALSE
       )
       
-      new_user_roles <- data.frame(
-        uid = uuid::UUIDgenerate(n = length(roles)),
-        user_uid = user_uid,
-        role_uid = new_roles$uid,
-        app_name = app_name,
-        created_by = created_by,
-        stringsAsFactors = FALSE
-      )
-
-      # append new roles to "user_roles" table
       DBI::dbWriteTable(
         conn,
         name = DBI::Id(schema = "polished", table = "roles"),
@@ -145,6 +138,18 @@ create_app_user <- function(conn, app_name, email, is_admin = FALSE, roles = cha
         overwrite = FALSE
       )
       
+      existing_roles <- collect(tbl(conn, in_schema("polished", "roles")))
+      
+      new_user_roles <- data.frame(
+        uid = uuid::UUIDgenerate(n = length(roles)),
+        user_uid = user_uid,
+        role_uid = existing_roles$uid[(roles %in% existing_roles$name)],
+        app_name = app_name,
+        created_by = created_by,
+        stringsAsFactors = FALSE
+      )
+
+      # append new roles to "user_roles" table
       DBI::dbWriteTable(
         conn,
         name = DBI::Id(schema = "polished", table = "user_roles"),
