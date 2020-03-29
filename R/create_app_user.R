@@ -117,10 +117,20 @@ create_app_user <- function(conn, app_name, email, is_admin = FALSE, roles = cha
     if (length(roles) > 0) {
 
       # create table of new roles to insert into "user_roles"
+      
       new_roles <- data.frame(
         uid = uuid::UUIDgenerate(n = length(roles)),
+        name = roles,
+        app_name = app_name,
+        created_by = created_by,
+        modified_by = created_by,
+        stringsAsFactors = FALSE
+      )
+      
+      new_user_roles <- data.frame(
+        uid = uuid::UUIDgenerate(n = length(roles)),
         user_uid = user_uid,
-        role_uid = roles,
+        role_uid = new_roles$uid,
         app_name = app_name,
         created_by = created_by,
         stringsAsFactors = FALSE
@@ -129,8 +139,16 @@ create_app_user <- function(conn, app_name, email, is_admin = FALSE, roles = cha
       # append new roles to "user_roles" table
       DBI::dbWriteTable(
         conn,
-        name = DBI::Id(schema = "polished", table = "user_roles"),
+        name = DBI::Id(schema = "polished", table = "roles"),
         value = new_roles,
+        append = TRUE,
+        overwrite = FALSE
+      )
+      
+      DBI::dbWriteTable(
+        conn,
+        name = DBI::Id(schema = "polished", table = "user_roles"),
+        value = new_user_roles,
         append = TRUE,
         overwrite = FALSE
       )
